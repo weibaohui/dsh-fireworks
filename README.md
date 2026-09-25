@@ -4,6 +4,16 @@ dsh 插件 · **烟花庆祝引擎**：你在 aai 编程，它在对话窗口上
 
 ![demo](demo/demo.gif)
 
+## 关键帧
+
+| 开场迎宾（双子星） | 多弹齐放 | 绯蕊（蕊心双色） |
+| --- | --- | --- |
+| ![welcome](demo/shots/welcome-rainbow.jpg) | ![multi](demo/shots/multi-shells.jpg) | ![pistil](demo/shots/crimson-pistil.jpg) |
+
+| 里程碑（一发多色 bands） | 蓝柳与珍珠 | 收工终场（金色瀑布） |
+| --- | --- | --- |
+| ![bands](demo/shots/milestone-bands.jpg) | ![willow](demo/shots/willow-pearl.jpg) | ![finale](demo/shots/golden-finale.jpg) |
+
 ```
 session/created ──→ 开场迎宾      tool/result ✓ ──→ 工具星花（N 次连放）
 turn/end       ──→ 回合礼花       tool/result ✗ ──→ 哑炮 / 冷雨

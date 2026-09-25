@@ -47,6 +47,7 @@ const THROTTLE_REFILL_MS = 5000
 const DEFAULT_CONFIG = {
   enabled: true,
   intensity: 1,          // 0.3..2.5 全局强度（粒子数/尺寸缩放）
+  region: 'fullscreen',  // 显示范围：fullscreen | left | right | bottom-left | bottom-right
   categories: {
     session: true,
     turn: true,
@@ -56,6 +57,9 @@ const DEFAULT_CONFIG = {
     fail: true,
   },
 }
+
+/** 显示范围合法值（客户端 REGION_CSS 同名键）。 */
+const REGIONS = ['fullscreen', 'left', 'right', 'bottom-left', 'bottom-right']
 
 const CONFIG_KEY = 'config'
 const MAX_BODY_BYTES = 16 * 1024
@@ -80,6 +84,9 @@ function normalizeConfig(raw) {
   if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled
   if (typeof raw.intensity === 'number' && Number.isFinite(raw.intensity)) {
     out.intensity = Math.min(2.5, Math.max(0.3, raw.intensity))
+  }
+  if (typeof raw.region === 'string' && REGIONS.includes(raw.region)) {
+    out.region = raw.region
   }
   if (raw.categories && typeof raw.categories === 'object') {
     for (const k of Object.keys(out.categories)) {

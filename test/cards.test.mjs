@@ -153,3 +153,10 @@ test('宿主配置校验：坏输入回退默认', () => {
   assert.equal(cfg.categories.fail, true)
   assert.equal(Host.__internals.normalizeConfig(null).enabled, true)
 })
+
+test('宿主配置校验：region 枚举', () => {
+  assert.equal(Host.__internals.normalizeConfig({ region: 'right' }).region, 'right')
+  assert.equal(Host.__internals.normalizeConfig({ region: 'bottom-left' }).region, 'bottom-left')
+  assert.equal(Host.__internals.normalizeConfig({ region: 'bogus' }).region, 'fullscreen')
+  assert.equal(Host.__internals.normalizeConfig({}).region, 'fullscreen')
+})

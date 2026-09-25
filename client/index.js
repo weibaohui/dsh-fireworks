@@ -32,6 +32,13 @@ const ZH = {
   enabledHint: '关闭后所有事件静默，画布收起。',
   intensity: '全局强度',
   intensityHint: '缩放粒子数量与尺寸（0.3–2.5）。低配机器建议 0.6 左右。',
+  region: '显示范围',
+  regionHint: '烟花只在此区域内绽放；角落区域像小组件，不挡对话内容。',
+  regionFullscreen: '全屏',
+  regionLeft: '左部侧边栏',
+  regionRight: '右部侧边栏',
+  regionBottomLeft: '左下角',
+  regionBottomRight: '右下角',
   categories: '事件类别',
   catSession: '开场迎宾（新会话）',
   catTurn: '回合礼花（每轮回复完成）',
@@ -63,6 +70,13 @@ const EN = {
   enabledHint: 'When off, every event stays silent and the canvas is hidden.',
   intensity: 'Global intensity',
   intensityHint: 'Scales particle count and size (0.3–2.5). Lower it on weak GPUs.',
+  region: 'Display region',
+  regionHint: 'Fireworks bloom only inside this region; corner regions feel like widgets.',
+  regionFullscreen: 'Fullscreen',
+  regionLeft: 'Left sidebar strip',
+  regionRight: 'Right sidebar strip',
+  regionBottomLeft: 'Bottom-left corner',
+  regionBottomRight: 'Bottom-right corner',
   categories: 'Event categories',
   catSession: 'Welcome shells (new session)',
   catTurn: 'Turn peonies (reply completed)',
@@ -99,19 +113,41 @@ const CATEGORY_LABEL_KEYS = {
 // ── 漂浮画布 ─────────────────────────────────────────────────────────────
 
 /**
- * 全屏透明画布浮层。pointer-events:none 不挡任何点击；z-index 低于
+ * 显示范围：画布不必铺满全屏，可收缩到侧边竖条或角落小窗（角落小组件
+ * 式庆祝，不挡对话内容）。引擎坐标系相对画布，收缩后自动适配。
+ * 区域键与宿主 REGIONS 枚举一致。
+ */
+const REGION_CSS = {
+  fullscreen: { top: '0', left: '0', width: '100vw', height: '100vh' },
+  left: { top: '0', bottom: '0', left: '0', right: 'auto', width: 'clamp(220px, 24vw, 400px)', height: 'auto' },
+  right: { top: '0', bottom: '0', left: 'auto', right: '0', width: 'clamp(220px, 24vw, 400px)', height: 'auto' },
+  'bottom-left': { top: 'auto', bottom: '0', left: '0', right: 'auto', width: 'clamp(280px, 38vw, 560px)', height: 'clamp(240px, 46vh, 480px)' },
+  'bottom-right': { top: 'auto', bottom: '0', left: 'auto', right: '0', width: 'clamp(280px, 38vw, 560px)', height: 'clamp(240px, 46vh, 480px)' },
+}
+
+/**
+ * 全屏/区域透明画布浮层。pointer-events:none 不挡任何点击；z-index 低于
  * 设置/对话框浮层（2147483000 一带），高于对话内容。
  */
 function mountOverlay() {
   const canvas = document.createElement('canvas')
   canvas.setAttribute('data-dsh-fireworks', '')
-  canvas.style.cssText = [
-    'position:fixed', 'inset:0', 'width:100vw', 'height:100vh',
-    'pointer-events:none', 'z-index:2147482000',
-  ].join(';')
+  canvas.style.cssText = 'position:fixed;pointer-events:none;z-index:2147482000'
   document.body.appendChild(canvas)
 
-  const engine = createEngine(canvas, { maxParticles: 1600 })
+  const engine = createEngine(canvas, { maxParticles: 1300 })
+
+  let region = 'fullscreen'
+  const applyRegion = (r) => {
+    region = REGION_CSS[r] ? r : 'fullscreen'
+    const css = REGION_CSS[region]
+    // 先清后设：切换区域时旧的长宽/锚点不能残留
+    for (const k of ['top', 'bottom', 'left', 'right', 'width', 'height']) canvas.style[k] = ''
+    for (const [k, v] of Object.entries(css)) canvas.style[k] = v
+    engine.resize()
+  }
+  applyRegion(region)
+
   const onResize = () => engine.resize()
   window.addEventListener('resize', onResize)
   const onVisibility = () => engine.setEnabled(!document.hidden && overlayEnabled)
@@ -125,6 +161,7 @@ function mountOverlay() {
       engine.setEnabled(overlayEnabled && !document.hidden)
       canvas.style.display = overlayEnabled ? '' : 'none'
     },
+    setRegion: applyRegion,
     dispose() {
       window.removeEventListener('resize', onResize)
       document.removeEventListener('visibilitychange', onVisibility)
@@ -281,6 +318,22 @@ function FireworksPanel({ t }) {
       }),
       h('code', { style: { fontSize: '12px', minWidth: '30px', textAlign: 'right' } }, config.intensity.toFixed(1))),
 
+    // 显示范围
+    h('div', { style: row },
+      h('span', { style: label },
+        t('region'),
+        h('span', { style: hint }, t('regionHint'))),
+      h('select', {
+        value: config.region || 'fullscreen',
+        style: { fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))', background: 'transparent', color: 'inherit' },
+        onChange: (e) => save(Object.assign({}, config, { region: e.target.value })),
+      },
+        h('option', { value: 'fullscreen' }, t('regionFullscreen')),
+        h('option', { value: 'left' }, t('regionLeft')),
+        h('option', { value: 'right' }, t('regionRight')),
+        h('option', { value: 'bottom-left' }, t('regionBottomLeft')),
+        h('option', { value: 'bottom-right' }, t('regionBottomRight')))),
+
     // 六类事件开关 + 试放
     h('h4', { style: { margin: '18px 0 4px', fontSize: '13px' } }, t('categories')),
     CATEGORY_ORDER.map((cat) => h('div', { key: cat, style: row },
@@ -345,6 +398,7 @@ module.exports = {
       if (!cfg || typeof cfg !== 'object') return
       overlay.setEnabled(cfg.enabled !== false && !reducedMotion)
       overlay.engine.setIntensity(typeof cfg.intensity === 'number' ? cfg.intensity : 1)
+      overlay.setRegion(typeof cfg.region === 'string' ? cfg.region : 'fullscreen')
     }
     fetch(API + '/config', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))

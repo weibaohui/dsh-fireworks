@@ -138,7 +138,8 @@ function createEngine(canvas, opts) {
     vw = canvas.clientWidth || (typeof innerWidth !== 'undefined' ? innerWidth : 1280)
     vh = canvas.clientHeight || (typeof innerHeight !== 'undefined' ? innerHeight : 800)
     const dpr = Math.min(2, (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1)
-    unit = Math.max(0.7, Math.min(1.6, Math.min(vw, vh) / 900))
+    // 尺寸缩放因子：小窗口/区域烟花按比例缩小（下限 0.4 兼容侧边竖条与角落小窗）
+    unit = Math.max(0.4, Math.min(1.6, Math.min(vw, vh) / 900))
     renderer.resize(vw, vh, dpr)
   }
   resize()

@@ -1,0 +1,59 @@
+{
+  "name": "@weibaohui/dsh-fireworks",
+  "version": "0.1.0",
+  "description": "dsh 插件 · 烟花庆祝引擎：agent 编程时漂浮在对话窗口上空放烟花——开场迎宾、回合礼花、工具星花、里程碑大礼、收工终场、失败哑炮，每类事件一张烟花属性卡组，组内多变种随机抽取，token 用量决定烟花的大小、高度与绚烂程度。",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "fireworks",
+    "celebration",
+    "canvas",
+    "particles",
+    "dsh-plugin"
+  ],
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client/bundle.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22.5",
+    "dsh": ">=0.1.7-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "src",
+    "client",
+    "docs",
+    "demo",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "check": "node --check src/index.js && node --check client/engine.js && node --check client/cards.js && node --check client/renderer-webgl.js && node --check client/renderer-canvas2d.js && node --check client/index.js",
+    "test": "node --test test/*.test.mjs",
+    "build:client": "node scripts/build-client.mjs",
+    "prepublishOnly": "npm run build:client && npm run check && npm test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weibaohui/dsh-fireworks.git"
+  },
+  "homepage": "https://github.com/weibaohui/dsh-fireworks#readme"
+}

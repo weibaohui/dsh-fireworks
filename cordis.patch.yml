@@ -1,0 +1,12 @@
+# dsh-plugin-dsh-fireworks bundle patch: contributes the plugin row into the
+# host composition when this package is installed via `dsh plugin add`.
+#
+# The plugin is HOST-PLANE: it subscribes to `session/event` on the host,
+# classifies celebration events (turn end / tool success / milestones …),
+# and fans them out over an SSE route; the client half renders the fireworks
+# canvas overlay in the web shell. It must therefore land in the host
+# composition (this insert), never inside an agent preset.
+
+- insert:
+    - id: dsh-fireworks
+      name: '@weibaohui/dsh-fireworks'

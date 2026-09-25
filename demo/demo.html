@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>dsh-fireworks 引擎试放台</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0e1a; overflow: hidden;
+    font: 13px/1.5 ui-sans-serif, system-ui; color: #cfd6e4; }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  #hud { position: fixed; left: 12px; bottom: 12px; z-index: 10; opacity: .85;
+    background: rgba(10,12,24,.72); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 10px; padding: 10px 12px; max-width: 340px; }
+  #hud b { color: #ffd77a }
+  #hud .row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px }
+  #hud button { font-size: 12px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.2); background: transparent; color: inherit }
+  #hud button:hover { background: rgba(255,255,255,.1) }
+  #last { color: #8fd3ff }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div id="hud">
+  <div>🎆 dsh-fireworks 试放台 · 最近发射：<b id="last">—</b></div>
+  <div class="row" id="cats"></div>
+  <div class="row" id="auto"></div>
+</div>
+<script src="../client/cards.js"></script>
+<script src="../client/renderer-canvas2d.js"></script>
+<script src="../client/renderer-webgl.js"></script>
+<script src="../client/engine.js"></script>
+<script>
+const canvas = document.getElementById('stage')
+const engine = createEngine(canvas, { maxParticles: 1600 })
+addEventListener('resize', () => engine.resize())
+
+const bagState = {}
+let seed = 1
+function fire(category, mag) {
+  const rng = mulberry32((seed++ * 2654435761) >>> 0)
+  const [c] = pickVariants(category, 1, rng, bagState)
+  document.getElementById('last').textContent = c.name + ' · mag ' + mag.toFixed(2)
+  engine.fireCard(c, mag == null ? 0.7 : mag, (seed * 97) >>> 0)
+}
+
+const cats = ['session', 'turn', 'tool', 'milestone', 'finale', 'fail']
+const names = { session: '开场', turn: '回合', tool: '工具', milestone: '里程碑', finale: '终场', fail: '哑炮' }
+const catsDiv = document.getElementById('cats')
+for (const c of cats) {
+  const b = document.createElement('button')
+  b.textContent = names[c]
+  b.onclick = () => fire(c, 0.7)
+  catsDiv.appendChild(b)
+}
+let auto = null
+const autoBtn = document.createElement('button')
+autoBtn.textContent = '▶ 自动连放'
+autoBtn.onclick = () => {
+  if (auto) { clearInterval(auto); auto = null; autoBtn.textContent = '▶ 自动连放'; return }
+  let i = 0
+  auto = setInterval(() => fire(cats[i++ % cats.length], 0.35 + (i % 5) * 0.15), 1700)
+  autoBtn.textContent = '⏸ 停止'
+}
+document.getElementById('auto').appendChild(autoBtn)
+
+// 截图模式：?shot=1 时连放一排代表性花型，便于抓取画面
+if (/[?&]shot=1/.test(location.search)) {
+  const plan = [
+    ['turn', 0.9], ['milestone', 0.85], ['finale', 0.9],
+    ['turn', 0.6], ['session', 0.7],
+  ]
+  plan.forEach(([c, m], i) => setTimeout(() => fire(c, m), 300 + i * 700))
+  setInterval(() => { fire(['turn','milestone','finale'][Math.floor(Math.random()*3)], 0.5 + Math.random()*0.5) }, 1600)
+}
+
+// 录制模式：?demo=1 隐藏 HUD，按脚本编排一轮完整节目并循环
+// （模拟一次真实编程会话：开场 → 回合 → 工具连发 → 大回合 → 里程碑 → 终场）
+if (/[?&]demo=1/.test(location.search)) {
+  document.getElementById('hud').style.display = 'none'
+  const bagDemo = {}
+  let dseed = 7
+  const fireV = (category, mag, count) => {
+    const rng = mulberry32((dseed++ * 2654435761) >>> 0)
+    const variants = pickVariants(category, count || 1, rng, bagDemo)
+    variants.forEach((c, i) => setTimeout(() => {
+      document.title = ''
+      engine.fireCard(c, mag, (dseed * 131 + i) >>> 0)
+    }, i * 170))
+  }
+  const script = [
+    [300,  'session',   0.55, 1],   // 开场迎宾
+    [1800, 'turn',      0.5,  1],   // 小回合礼花
+    [3200, 'tool',      0.38, 3],   // 工具三连星花
+    [4500, 'turn',      0.68, 1],   // 中回合
+    [6100, 'milestone', 0.8,  1],   // 里程碑大礼
+    [7800, 'tool',      0.42, 2],
+    [8600, 'turn',      0.85, 1],   // 大回合
+    [10300,'finale',    0.95, 1],   // 收工终场齐射
+    [12400,'turn',      0.6,  1],
+  ]
+  const runShow = () => script.forEach(([t, c, m, n]) => setTimeout(() => fireV(c, m, n), t))
+  runShow()
+  setInterval(runShow, 16000)
+}
+</script>
+</body>
+</html>

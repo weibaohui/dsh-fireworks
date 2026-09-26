@@ -7,13 +7,13 @@
 
 ## 效果演示
 
-![demo：开场迎宾 → 回合礼花 → 工具三连 → 里程碑 → 终场齐射（16s 循环）](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/demo.gif)
+![demo：开场迎宾 → 回合礼花 → 工具三连 → 里程碑 → 终场齐射（16s 循环）](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/demo.gif)
 
 | | | |
 |---|---|---|
-| ![双子星迎宾](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/welcome-rainbow.jpg) | ![多弹齐放](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/multi-shells.jpg) | ![绯蕊](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/crimson-pistil.jpg) |
+| ![双子星迎宾](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/welcome-rainbow.jpg) | ![多弹齐放](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/multi-shells.jpg) | ![绯蕊](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/crimson-pistil.jpg) |
 | *开场迎宾：双子星七彩星芒* | *回合与工具星花同场齐放* | *绯蕊：粉红外瓣包白炽蕊心* |
-| ![一发多色](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/milestone-bands.jpg) | ![蓝柳与珍珠](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/willow-pearl.jpg) | ![金色终场](https://raw.githubusercontent.com/weibaohui/dsh-fireworks/main/docs/shots/golden-finale.jpg) |
+| ![一发多色](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/milestone-bands.jpg) | ![蓝柳与珍珠](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/willow-pearl.jpg) | ![金色终场](https://cdn.jsdelivr.net/gh/weibaohui/dsh-fireworks@main/docs/shots/golden-finale.jpg) |
 | *里程碑：一发多色 bands 混色弹* | *蓝柳垂丝与珍珠环拖尾* | *收工终场：金色瀑布齐射* |
 
 ## 核心功能

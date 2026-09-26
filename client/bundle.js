@@ -1790,7 +1790,9 @@ window.__ModuleLoader__.load({
       save: '保存',
       saved: '已保存 ✓',
       retry: '重试',
-      reducedMotion: '检测到系统「减弱动态效果」偏好，烟花已暂停；如需强制开启请先关闭系统该偏好。',
+      reducedMotion: '检测到系统「减弱动态效果」偏好，烟花已暂停；开启下方「忽略系统减弱动态效果」可强制播放，或在 系统设置 → 辅助功能 → 显示 中关闭该偏好（需刷新页面）。',
+      ignoreReducedMotion: '忽略系统「减弱动态效果」',
+      ignoreReducedMotionHint: '开启后即使系统偏好减弱动态效果，也照常播放烟花。',
       demoHint: '小贴士：在地址栏加 ?fireworks=demo 可进入循环试放模式。',
     }
 
@@ -1828,7 +1830,9 @@ window.__ModuleLoader__.load({
       save: 'Save',
       saved: 'Saved ✓',
       retry: 'Retry',
-      reducedMotion: 'Your system prefers reduced motion — fireworks are paused.',
+      reducedMotion: 'Your system prefers reduced motion — fireworks are paused. Turn on "Ignore reduced motion" below to force playback, or change the OS accessibility setting (then refresh).',
+      ignoreReducedMotion: 'Ignore system "reduce motion"',
+      ignoreReducedMotionHint: 'Play fireworks even when the OS prefers reduced motion.',
       demoHint: 'Tip: append ?fireworks=demo to the URL for a looping demo.',
     }
 
@@ -2029,7 +2033,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: { maxWidth: '560px' } },
         h('p', { style: { opacity: 0.75, fontSize: '13px', lineHeight: 1.6 } }, t('intro')),
 
-        reducedMotion && h('p', { style: { color: 'var(--dsw-alias-label-warning, #d19a66)', fontSize: '12px' } }, t('reducedMotion')),
+        reducedMotion && !config.ignoreReducedMotion && h('p', { style: { color: 'var(--dsw-alias-label-warning, #d19a66)', fontSize: '12px' } }, t('reducedMotion')),
 
         // 总开关
         h('div', { style: row },
@@ -2037,6 +2041,14 @@ window.__ModuleLoader__.load({
           h('input', {
             type: 'checkbox', checked: !!config.enabled,
             onChange: (e) => save(Object.assign({}, config, { enabled: e.target.checked })),
+          })),
+
+        // 忽略系统「减弱动态效果」
+        h('div', { style: row },
+          h('span', { style: label }, t('ignoreReducedMotion'), h('span', { style: hint }, t('ignoreReducedMotionHint'))),
+          h('input', {
+            type: 'checkbox', checked: !!config.ignoreReducedMotion,
+            onChange: (e) => save(Object.assign({}, config, { ignoreReducedMotion: e.target.checked })),
           })),
 
         // 全局强度
@@ -2128,7 +2140,8 @@ window.__ModuleLoader__.load({
         const reducedMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
         const applyConfig = (cfg) => {
           if (!cfg || typeof cfg !== 'object') return
-          overlay.setEnabled(cfg.enabled !== false && !reducedMotion)
+          const allowMotion = !reducedMotion || cfg.ignoreReducedMotion === true
+          overlay.setEnabled(cfg.enabled !== false && allowMotion)
           overlay.engine.setIntensity(typeof cfg.intensity === 'number' ? cfg.intensity : 1)
           overlay.setRegion(typeof cfg.region === 'string' ? cfg.region : 'bottom-right')
         }

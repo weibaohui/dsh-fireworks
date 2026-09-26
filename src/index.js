@@ -48,6 +48,7 @@ const DEFAULT_CONFIG = {
   enabled: true,
   intensity: 1,          // 0.3..2.5 全局强度（粒子数/尺寸缩放）
   region: 'bottom-right',  // 显示范围：fullscreen | left | right | bottom-left | bottom-right
+  ignoreReducedMotion: false,  // true 时无视系统「减弱动态效果」偏好照常播放
   categories: {
     session: true,
     turn: true,
@@ -88,6 +89,7 @@ function normalizeConfig(raw) {
   if (typeof raw.region === 'string' && REGIONS.includes(raw.region)) {
     out.region = raw.region
   }
+  if (typeof raw.ignoreReducedMotion === 'boolean') out.ignoreReducedMotion = raw.ignoreReducedMotion
   if (raw.categories && typeof raw.categories === 'object') {
     for (const k of Object.keys(out.categories)) {
       if (typeof raw.categories[k] === 'boolean') out.categories[k] = raw.categories[k]

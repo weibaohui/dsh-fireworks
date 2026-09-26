@@ -160,3 +160,9 @@ test('宿主配置校验：region 枚举', () => {
   assert.equal(Host.__internals.normalizeConfig({ region: 'bogus' }).region, 'bottom-right')
   assert.equal(Host.__internals.normalizeConfig({}).region, 'bottom-right')
 })
+
+test('宿主配置校验：ignoreReducedMotion 布尔', () => {
+  assert.equal(Host.__internals.normalizeConfig({}).ignoreReducedMotion, false)
+  assert.equal(Host.__internals.normalizeConfig({ ignoreReducedMotion: true }).ignoreReducedMotion, true)
+  assert.equal(Host.__internals.normalizeConfig({ ignoreReducedMotion: 'yes' }).ignoreReducedMotion, false)
+})

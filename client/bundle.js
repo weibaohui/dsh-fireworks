@@ -757,6 +757,13 @@ window.__ModuleLoader__.load({
 
     const WEBGL_FADE_BY_BUCKET = [0.84, 0.905, 0.95]
 
+    /**
+     * 桶内容衰减到不可见（<1/255）所需的 60fps 等效帧数：ln(255)/-ln(fade)，留余量。
+     * begin/end 按 dt 折算的 fadeK 累积进 decay，空桶衰减达标后纹理即纯黑，
+     * fade pass 整桶跳过；三桶全达标时 isIdle() 为真，引擎可停摆省电。
+     */
+    const DECAY_TO_BLACK = [36, 60, 118]
+
     const VERT_PARTICLE = `#version 300 es
     layout(location=0) in vec2 a_pos;      // px，原点左上
     layout(location=1) in float a_size;    // px
@@ -915,10 +922,12 @@ window.__ModuleLoader__.load({
 
       // ── 累积纹理（每桶乒乓两张）────────────────────────────────────────────
       let vw = 0; let vh = 0; let scale = 1
+      // 累积纹理实际尺寸（可半分辨率）与 CSS px → 桶纹理 px 的换算
+      let bw = 0; let bh = 0; let bscale = 1
       const buckets = [
-        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[0] },
-        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[1] },
-        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[2] },
+        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[0], decay: Infinity },
+        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[1], decay: Infinity },
+        { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[2], decay: Infinity },
       ]
 
       const makeTarget = (w, h) => {
@@ -942,10 +951,11 @@ window.__ModuleLoader__.load({
         for (const b of buckets) {
           for (let i = 0; i < 2; i++) {
             if (b.tex[i]) { gl.deleteTexture(b.tex[i]); gl.deleteFramebuffer(b.fbo[i]) }
-            const t = makeTarget(vw, vh)
+            const t = makeTarget(bw, bh)
             b.tex[i] = t.tex; b.fbo[i] = t.fbo
           }
           b.read = 0
+          b.decay = Infinity   // 新纹理已清黑：直接视为空闲，不空跑 fade
         }
       }
 
@@ -971,7 +981,13 @@ window.__ModuleLoader__.load({
           const k = longEdge > 2400 ? 2400 / longEdge : 1
           vw = Math.max(2, Math.round(w * k))
           vh = Math.max(2, Math.round(h * k))
-          scale = vw / cssW   // CSS px → 纹理 px
+          scale = vw / cssW   // CSS px → 画布纹理 px
+          // 大画布累积纹理半分辨率：拖尾/爆闪本就柔和无细节，fade 与粒子盖章的
+          // 填充量省 3/4，合成时 LINEAR 放大无感；小窗（角落/侧栏）保持全分辨率
+          const trailScale = Math.max(vw, vh) > 1600 ? 0.5 : 1
+          bw = Math.max(2, Math.round(vw * trailScale))
+          bh = Math.max(2, Math.round(vh * trailScale))
+          bscale = scale * trailScale   // CSS px → 累积纹理 px
           canvas.width = vw
           canvas.height = vh
           allocTargets()
@@ -991,12 +1007,13 @@ window.__ModuleLoader__.load({
         stamp(x, y, size, r, g, b, alpha, bucket) {
           const bi = bucket === 2 ? 2 : bucket === 1 ? 1 : 0
           if (counts[bi] >= MAX_PARTICLES) return
+          buckets[bi].decay = 0   // 有内容入桶，重新计时衰减
           const arr = data[bi]
           const o = counts[bi] * FLOATS_PER
-          // 点精灵直径 = 星头 × 2.9（辉光晕半径）；CSS px → 纹理 px
-          arr[o] = x * scale
-          arr[o + 1] = y * scale
-          arr[o + 2] = Math.max(2, size * 2.9 * scale)
+          // 点精灵直径 = 星头 × 2.9（辉光晕半径）；CSS px → 累积纹理 px
+          arr[o] = x * bscale
+          arr[o + 1] = y * bscale
+          arr[o + 2] = Math.max(2, size * 2.9 * bscale)
           arr[o + 3] = r
           arr[o + 4] = g
           arr[o + 5] = b
@@ -1006,10 +1023,11 @@ window.__ModuleLoader__.load({
 
         /** 爆闪（礼炮白闪）：入短尾桶。 */
         flash(x, y, radius, alpha) {
-          flashes.push([x * scale, y * scale, radius * scale, alpha])
+          buckets[0].decay = 0
+          flashes.push([x * bscale, y * bscale, radius * bscale, alpha])
         },
 
-        /** 帧结束：三桶衰减+盖章，合成上屏。 */
+        /** 帧结束：三桶衰减+盖章，合成上屏。已纯黑的空桶整桶跳过。 */
         end() {
           gl.bindFramebuffer(gl.FRAMEBUFFER, null)
           gl.viewport(0, 0, vw, vh)
@@ -1017,9 +1035,12 @@ window.__ModuleLoader__.load({
           // 每桶：fade 拷贝（读→写）→ 加法盖粒子 → 乒乓交换
           for (let bi = 0; bi < 3; bi++) {
             const b = buckets[bi]
+            // 空桶衰减累积：达标即纯黑，fade pass 与乒乓都跳过（纹理保持黑）
+            if (counts[bi] === 0 && !(bi === 0 && flashes.length > 0)) b.decay += this._fadeK
+            if (b.decay > DECAY_TO_BLACK[bi]) continue
             const write = 1 - b.read
             gl.bindFramebuffer(gl.FRAMEBUFFER, b.fbo[write])
-            gl.viewport(0, 0, vw, vh)
+            gl.viewport(0, 0, bw, bh)
             gl.disable(gl.BLEND)
 
             // 衰减拷贝
@@ -1036,7 +1057,7 @@ window.__ModuleLoader__.load({
               gl.enable(gl.BLEND)
               gl.blendFunc(gl.ONE, gl.ONE)
               gl.useProgram(progParticle)
-              gl.uniform2f(uResP, vw, vh)
+              gl.uniform2f(uResP, bw, bh)
               gl.bindVertexArray(vaoParticle)
               gl.bindBuffer(gl.ARRAY_BUFFER, particleVbo)
               gl.bufferSubData(gl.ARRAY_BUFFER, 0, data[bi].subarray(0, counts[bi] * FLOATS_PER))
@@ -1049,7 +1070,7 @@ window.__ModuleLoader__.load({
               gl.enable(gl.BLEND)
               gl.blendFunc(gl.ONE, gl.ONE)
               gl.useProgram(progFlash)
-              gl.uniform2f(uResF, vw, vh)
+              gl.uniform2f(uResF, bw, bh)
               gl.bindVertexArray(vaoQuad)
               for (const [fx, fy, fr, fa] of flashes) {
                 gl.uniform2f(uCenter, fx, fy)
@@ -1086,10 +1107,19 @@ window.__ModuleLoader__.load({
               gl.clearColor(0, 0, 0, 0)
               gl.clear(gl.COLOR_BUFFER_BIT)
             }
+            b.decay = Infinity
           }
           gl.bindFramebuffer(gl.FRAMEBUFFER, null)
           gl.clearColor(0, 0, 0, 0)
           gl.clear(gl.COLOR_BUFFER_BIT)
+        },
+
+        /** 三桶累积纹理是否都已衰减到不可见（引擎据此停摆，让拖尾自然淡出再收工）。 */
+        isIdle() {
+          for (let bi = 0; bi < 3; bi++) {
+            if (buckets[bi].decay <= DECAY_TO_BLACK[bi]) return false
+          }
+          return true
         },
 
         /** 浅色主题：整体压暗合成输出，烟花呈墨色线条而非白团。 */
@@ -1190,6 +1220,35 @@ window.__ModuleLoader__.load({
       return [conv(h + 1 / 3), conv(h), conv(h - 1 / 3)]
     }
 
+    /**
+     * 同色相/饱和度、双亮度一次算出两色 → [r1,g1,b1, r2,g2,b2]。
+     * GL 双层盖章（本色 + 亮芯）每星每帧各要一次 hsl→rgb，合并后归一化与
+     * conv 闭包只做一遍，数学上与两次调用 hsl2rgb 完全等价。
+     */
+    function hsl2rgb2(h, s, l1, l2) {
+      h = ((h % 360) + 360) % 360 / 360
+      s = Math.max(0, Math.min(100, s)) / 100
+      l1 = Math.max(0, Math.min(100, l1)) / 100
+      l2 = Math.max(0, Math.min(100, l2)) / 100
+      if (s === 0) return [l1, l1, l1, l2, l2, l2]
+      const q1 = l1 < 0.5 ? l1 * (1 + s) : l1 + s - l1 * s
+      const p1 = 2 * l1 - q1
+      const q2 = l2 < 0.5 ? l2 * (1 + s) : l2 + s - l2 * s
+      const p2 = 2 * l2 - q2
+      const conv = (t, p, q) => {
+        if (t < 0) t += 1
+        if (t > 1) t -= 1
+        if (t < 1 / 6) return p + (q - p) * 6 * t
+        if (t < 1 / 2) return q
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+        return p
+      }
+      return [
+        conv(h + 1 / 3, p1, q1), conv(h, p1, q1), conv(h - 1 / 3, p1, q1),
+        conv(h + 1 / 3, p2, q2), conv(h, p2, q2), conv(h - 1 / 3, p2, q2),
+      ]
+    }
+
     /** hsl → canvas 填充串（带 alpha），canvas2d 路径备用/测试用。 */
     function hsla(h, s, l, a) {
       const [r, g, b] = hsl2rgb(h, s, l)
@@ -1237,6 +1296,8 @@ window.__ModuleLoader__.load({
         // shader 编译失败 / 上下文创建失败 → 回退 Canvas2D
         renderer = makeCanvas2D()
       }
+      /** 渲染路径常量：每星每帧不再重复字符串比较。 */
+      const isGL = renderer.name === 'webgl2'
 
       // ── 画布尺寸 ──────────────────────────────────────────────────────────
       let vw = 0; let vh = 0
@@ -1302,6 +1363,7 @@ window.__ModuleLoader__.load({
       // ── 星体工厂 ──────────────────────────────────────────────────────────
       function makeStar(x, y, vx, vy, spec, size, h, s, l, life, opts2) {
         const o = opts2 || {}
+        const trailLen = o.trailLen != null ? o.trailLen : Math.max(2, Math.round(spec.trailLen * (quality < 1 ? 0.6 : 1)))
         return {
           x, y, vx, vy,
           age: 0,
@@ -1311,7 +1373,8 @@ window.__ModuleLoader__.load({
           hueDrift: o.hueDrift != null ? o.hueDrift : spec.hueDrift,
           gravity: o.gravity != null ? o.gravity : spec.gravity * unit,
           drag: o.drag != null ? o.drag : spec.drag,
-          trailLen: o.trailLen != null ? o.trailLen : Math.max(2, Math.round(spec.trailLen * (quality < 1 ? 0.6 : 1))),
+          trailLen,
+          bucket: trailBucket(trailLen),   // trailLen 终身不变，桶归属缓存一次
           trailFade: o.trailFade != null ? o.trailFade : spec.trailFade,
           history: renderer.wantsHistory ? [] : null,
           strobePhase: o.strobePhase != null ? o.strobePhase : 0,
@@ -1516,15 +1579,14 @@ window.__ModuleLoader__.load({
         // WebGL 累积会叠加提亮：压低单帧亮度与印章浓度，让白炽核心由重叠自然
         // 形成、色相不被洗白；canvas2d 路径在渲染器内部自行压暗拖尾。
         // 浅色主题：色相加深加饱和成「墨色线条」，在白底上才有对比度。
-        const isGL = renderer.name === 'webgl2'
         let effL = isGL ? Math.min(68, effLight) : effLight
         let effS = st.s
         if (lightTone) { effL = Math.min(58, effLight - 5); effS = Math.min(100, effS + 30) }
-        const [r, g, b] = hsl2rgb(h, effS, effL)
         const headAlpha = Math.min(1, alpha * 1.2) * (lightTone ? 0.92 : 1)
 
         if (!isGL) {
-          renderer.stamp(st.x, st.y, st.size, r, g, b, headAlpha, trailBucket(st.trailLen), {
+          const [r, g, b] = hsl2rgb(h, effS, effL)
+          renderer.stamp(st.x, st.y, st.size, r, g, b, headAlpha, st.bucket, {
             history: st.history,
             trailLen: st.trailLen,
             trailFade: st.trailFade,
@@ -1534,22 +1596,26 @@ window.__ModuleLoader__.load({
 
         // 双层盖章：亮芯（小而实，色温偏高）+ 软晕（大而淡）。拖尾由亮芯
         // 连续盖章聚成亮线，软晕铺氛围——大星体下亮度不被面积摊薄。
-        const [cr, cg, cb] = hsl2rgb(h, effS, Math.min(85, effL + 12))
+        const [r, g, b, cr, cg, cb] = hsl2rgb2(h, effS, effL, Math.min(85, effL + 12))
         const haloAlpha = headAlpha * 0.3
 
         // 运动补偿子步盖章：高速星体相邻帧位置差大于星径时，沿运动矢量补盖
         // 中间点（能量按子步数摊薄），累积纹理中的拖尾才连续不成虚线。
+        // 自动降质时收紧子步上限并关掉软晕——省一半的正是负载最高的时刻。
+        const stepsCap = quality < 0.55 ? 1 : quality < 0.8 ? 2 : 4
         const dx = st.vx * lastDt; const dy = st.vy * lastDt
         const dist = Math.sqrt(dx * dx + dy * dy)
-        const steps = Math.min(4, Math.max(1, Math.ceil(dist / Math.max(2, st.size * 1.2))))
-        const bucket = trailBucket(st.trailLen)
-        const stepFade = Math.pow(steps, 0.75)
+        const steps = Math.min(stepsCap, Math.max(1, Math.ceil(dist / Math.max(2, st.size * 1.2))))
+        const stepFade = steps > 1 ? Math.pow(steps, 0.75) : 1
         for (let k = 1; k <= steps; k++) {
           const f = k / steps
           const sx = st.x - dx + dx * f
           const sy = st.y - dy + dy * f
-          renderer.stamp(sx, sy, st.size, cr, cg, cb, headAlpha / stepFade, bucket, null)
-          renderer.stamp(sx, sy, st.size * 2.2, r, g, b, haloAlpha / stepFade, bucket, null)
+          renderer.stamp(sx, sy, st.size, cr, cg, cb, headAlpha / stepFade, st.bucket, null)
+        }
+        // 软晕只盖头部一次：大而淡的辉光在拖尾路径上不可分辨，无需子步
+        if (quality >= 0.55) {
+          renderer.stamp(st.x, st.y, st.size * 2.2, r, g, b, haloAlpha, st.bucket, null)
         }
       }
 
@@ -1644,6 +1710,9 @@ window.__ModuleLoader__.load({
         renderer.end()
 
         if (rockets.length || stars.length || flashes.length || timers.length) {
+          rafId = requestAnimationFrame(frame)
+        } else if (typeof renderer.isIdle === 'function' && !renderer.isIdle()) {
+          // 粒子已清空但累积拖尾未衰减完：继续空转让拖尾自然淡出，而非 clear() 骤消
           rafId = requestAnimationFrame(frame)
         } else {
           running = false

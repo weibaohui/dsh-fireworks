@@ -25,6 +25,13 @@
 
 const WEBGL_FADE_BY_BUCKET = [0.84, 0.905, 0.95]
 
+/**
+ * 桶内容衰减到不可见（<1/255）所需的 60fps 等效帧数：ln(255)/-ln(fade)，留余量。
+ * begin/end 按 dt 折算的 fadeK 累积进 decay，空桶衰减达标后纹理即纯黑，
+ * fade pass 整桶跳过；三桶全达标时 isIdle() 为真，引擎可停摆省电。
+ */
+const DECAY_TO_BLACK = [36, 60, 118]
+
 const VERT_PARTICLE = `#version 300 es
 layout(location=0) in vec2 a_pos;      // px，原点左上
 layout(location=1) in float a_size;    // px
@@ -183,10 +190,12 @@ function createWebGLRenderer(canvas) {
 
   // ── 累积纹理（每桶乒乓两张）────────────────────────────────────────────
   let vw = 0; let vh = 0; let scale = 1
+  // 累积纹理实际尺寸（可半分辨率）与 CSS px → 桶纹理 px 的换算
+  let bw = 0; let bh = 0; let bscale = 1
   const buckets = [
-    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[0] },
-    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[1] },
-    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[2] },
+    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[0], decay: Infinity },
+    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[1], decay: Infinity },
+    { tex: [null, null], fbo: [null, null], read: 0, fade: WEBGL_FADE_BY_BUCKET[2], decay: Infinity },
   ]
 
   const makeTarget = (w, h) => {
@@ -210,10 +219,11 @@ function createWebGLRenderer(canvas) {
     for (const b of buckets) {
       for (let i = 0; i < 2; i++) {
         if (b.tex[i]) { gl.deleteTexture(b.tex[i]); gl.deleteFramebuffer(b.fbo[i]) }
-        const t = makeTarget(vw, vh)
+        const t = makeTarget(bw, bh)
         b.tex[i] = t.tex; b.fbo[i] = t.fbo
       }
       b.read = 0
+      b.decay = Infinity   // 新纹理已清黑：直接视为空闲，不空跑 fade
     }
   }
 
@@ -239,7 +249,13 @@ function createWebGLRenderer(canvas) {
       const k = longEdge > 2400 ? 2400 / longEdge : 1
       vw = Math.max(2, Math.round(w * k))
       vh = Math.max(2, Math.round(h * k))
-      scale = vw / cssW   // CSS px → 纹理 px
+      scale = vw / cssW   // CSS px → 画布纹理 px
+      // 大画布累积纹理半分辨率：拖尾/爆闪本就柔和无细节，fade 与粒子盖章的
+      // 填充量省 3/4，合成时 LINEAR 放大无感；小窗（角落/侧栏）保持全分辨率
+      const trailScale = Math.max(vw, vh) > 1600 ? 0.5 : 1
+      bw = Math.max(2, Math.round(vw * trailScale))
+      bh = Math.max(2, Math.round(vh * trailScale))
+      bscale = scale * trailScale   // CSS px → 累积纹理 px
       canvas.width = vw
       canvas.height = vh
       allocTargets()
@@ -259,12 +275,13 @@ function createWebGLRenderer(canvas) {
     stamp(x, y, size, r, g, b, alpha, bucket) {
       const bi = bucket === 2 ? 2 : bucket === 1 ? 1 : 0
       if (counts[bi] >= MAX_PARTICLES) return
+      buckets[bi].decay = 0   // 有内容入桶，重新计时衰减
       const arr = data[bi]
       const o = counts[bi] * FLOATS_PER
-      // 点精灵直径 = 星头 × 2.9（辉光晕半径）；CSS px → 纹理 px
-      arr[o] = x * scale
-      arr[o + 1] = y * scale
-      arr[o + 2] = Math.max(2, size * 2.9 * scale)
+      // 点精灵直径 = 星头 × 2.9（辉光晕半径）；CSS px → 累积纹理 px
+      arr[o] = x * bscale
+      arr[o + 1] = y * bscale
+      arr[o + 2] = Math.max(2, size * 2.9 * bscale)
       arr[o + 3] = r
       arr[o + 4] = g
       arr[o + 5] = b
@@ -274,10 +291,11 @@ function createWebGLRenderer(canvas) {
 
     /** 爆闪（礼炮白闪）：入短尾桶。 */
     flash(x, y, radius, alpha) {
-      flashes.push([x * scale, y * scale, radius * scale, alpha])
+      buckets[0].decay = 0
+      flashes.push([x * bscale, y * bscale, radius * bscale, alpha])
     },
 
-    /** 帧结束：三桶衰减+盖章，合成上屏。 */
+    /** 帧结束：三桶衰减+盖章，合成上屏。已纯黑的空桶整桶跳过。 */
     end() {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.viewport(0, 0, vw, vh)
@@ -285,9 +303,12 @@ function createWebGLRenderer(canvas) {
       // 每桶：fade 拷贝（读→写）→ 加法盖粒子 → 乒乓交换
       for (let bi = 0; bi < 3; bi++) {
         const b = buckets[bi]
+        // 空桶衰减累积：达标即纯黑，fade pass 与乒乓都跳过（纹理保持黑）
+        if (counts[bi] === 0 && !(bi === 0 && flashes.length > 0)) b.decay += this._fadeK
+        if (b.decay > DECAY_TO_BLACK[bi]) continue
         const write = 1 - b.read
         gl.bindFramebuffer(gl.FRAMEBUFFER, b.fbo[write])
-        gl.viewport(0, 0, vw, vh)
+        gl.viewport(0, 0, bw, bh)
         gl.disable(gl.BLEND)
 
         // 衰减拷贝
@@ -304,7 +325,7 @@ function createWebGLRenderer(canvas) {
           gl.enable(gl.BLEND)
           gl.blendFunc(gl.ONE, gl.ONE)
           gl.useProgram(progParticle)
-          gl.uniform2f(uResP, vw, vh)
+          gl.uniform2f(uResP, bw, bh)
           gl.bindVertexArray(vaoParticle)
           gl.bindBuffer(gl.ARRAY_BUFFER, particleVbo)
           gl.bufferSubData(gl.ARRAY_BUFFER, 0, data[bi].subarray(0, counts[bi] * FLOATS_PER))
@@ -317,7 +338,7 @@ function createWebGLRenderer(canvas) {
           gl.enable(gl.BLEND)
           gl.blendFunc(gl.ONE, gl.ONE)
           gl.useProgram(progFlash)
-          gl.uniform2f(uResF, vw, vh)
+          gl.uniform2f(uResF, bw, bh)
           gl.bindVertexArray(vaoQuad)
           for (const [fx, fy, fr, fa] of flashes) {
             gl.uniform2f(uCenter, fx, fy)
@@ -354,10 +375,19 @@ function createWebGLRenderer(canvas) {
           gl.clearColor(0, 0, 0, 0)
           gl.clear(gl.COLOR_BUFFER_BIT)
         }
+        b.decay = Infinity
       }
       gl.bindFramebuffer(gl.FRAMEBUFFER, null)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
+    },
+
+    /** 三桶累积纹理是否都已衰减到不可见（引擎据此停摆，让拖尾自然淡出再收工）。 */
+    isIdle() {
+      for (let bi = 0; bi < 3; bi++) {
+        if (buckets[bi].decay <= DECAY_TO_BLACK[bi]) return false
+      }
+      return true
     },
 
     /** 浅色主题：整体压暗合成输出，烟花呈墨色线条而非白团。 */

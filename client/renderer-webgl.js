@@ -66,14 +66,20 @@ layout(location=0) in vec2 a_xy;       // -1..1
 out vec2 v_uv;
 void main() { v_uv = a_xy * 0.5 + 0.5; gl_Position = vec4(a_xy, 0.0, 1.0); }`
 
-/** 衰减拷贝：out = tex × fade（RGBA 整体乘，预乘 alpha 下颜色与透明度同步衰减）。 */
+/** 衰减拷贝：out = tex × fade（RGBA 整体乘，预乘 alpha 下颜色与透明度同步衰减）。
+ *  8bit 纹理量化陷阱：残值 <~10/255 时 ×0.95 四舍五入回原值，衰减停滞成
+ *  永久残影（暗色背景上显形为烟花轮廓）；减一个亚像素常量保证每帧严格
+ *  下降、最终真归零。预乘下 rgb≤a，各通道同减不破坏不变式。 */
 const FRAG_FADE = `#version 300 es
 precision mediump float;
 in vec2 v_uv;
 uniform sampler2D u_tex;
 uniform float u_fade;
 out vec4 outColor;
-void main() { outColor = texture(u_tex, v_uv) * u_fade; }`
+void main() {
+  vec4 c = texture(u_tex, v_uv) * u_fade;
+  outColor = max(c - vec4(0.0039), vec4(0.0));   // 0.0039 ≈ 1/255
+}`
 
 /** 合成：三桶相加（预乘加法），直写画布；u_dim 供浅色主题整体压暗。 */
 const FRAG_COMPOSITE = `#version 300 es

@@ -1869,9 +1869,9 @@ window.__ModuleLoader__.load({
 
       const engine = createEngine(canvas, { maxParticles: 1300 })
 
-      let region = 'fullscreen'
+      let region = 'bottom-right'
       const applyRegion = (r) => {
-        region = REGION_CSS[r] ? r : 'fullscreen'
+        region = REGION_CSS[r] ? r : 'bottom-right'
         const css = REGION_CSS[region]
         // 先清后设：切换区域时旧的长宽/锚点不能残留
         for (const k of ['top', 'bottom', 'left', 'right', 'width', 'height']) canvas.style[k] = ''
@@ -2056,7 +2056,7 @@ window.__ModuleLoader__.load({
             t('region'),
             h('span', { style: hint }, t('regionHint'))),
           h('select', {
-            value: config.region || 'fullscreen',
+            value: config.region || 'bottom-right',
             style: { fontSize: '12px', padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,.3))', background: 'transparent', color: 'inherit' },
             onChange: (e) => save(Object.assign({}, config, { region: e.target.value })),
           },
@@ -2130,7 +2130,7 @@ window.__ModuleLoader__.load({
           if (!cfg || typeof cfg !== 'object') return
           overlay.setEnabled(cfg.enabled !== false && !reducedMotion)
           overlay.engine.setIntensity(typeof cfg.intensity === 'number' ? cfg.intensity : 1)
-          overlay.setRegion(typeof cfg.region === 'string' ? cfg.region : 'fullscreen')
+          overlay.setRegion(typeof cfg.region === 'string' ? cfg.region : 'bottom-right')
         }
         fetch(API + '/config', { cache: 'no-store' })
           .then((r) => (r.ok ? r.json() : null))

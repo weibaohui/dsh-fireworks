@@ -47,7 +47,7 @@ const THROTTLE_REFILL_MS = 5000
 const DEFAULT_CONFIG = {
   enabled: true,
   intensity: 1,          // 0.3..2.5 全局强度（粒子数/尺寸缩放）
-  region: 'fullscreen',  // 显示范围：fullscreen | left | right | bottom-left | bottom-right
+  region: 'bottom-right',  // 显示范围：fullscreen | left | right | bottom-left | bottom-right
   categories: {
     session: true,
     turn: true,

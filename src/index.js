@@ -124,7 +124,12 @@ module.exports = {
     const domainPromise = ctx.storageDomain.open({
       name: 'dsh_fireworks',
       version: 1,
-      tables: { config: {} },
+      // 坏记录挪备份视为缺失，不让整个域打不开
+      invalidRecords: 'backup-and-skip',
+      // valueSchema 是 open 时逐条 parse 存量记录的契约：缺了它，表里一旦
+      // 有记录整个域就打不开（open 失败 → configTable 永远 null → 保存只
+      // 落内存）。形状归一由本文件 normalizeConfig 负责，这里只做透传。
+      tables: { config: { valueSchema: { parse: (v) => v } } },
     })
     let configTable = null
     let config = DEFAULT_CONFIG
@@ -340,7 +345,9 @@ module.exports = {
               let parsed
               try { parsed = JSON.parse(body) } catch { sendJson(400, { error: 'bad json' }); return }
               config = normalizeConfig(parsed)
-              try { if (configTable) await configTable.put(CONFIG_KEY, config) } catch { /* 降级内存 */ }
+              // 先等存储域就绪再落盘：启动瞬间的保存不能因 configTable 未
+              // 就位而漏写；存储不可用时 domainPromise 拒绝 → 降级内存
+              try { await domainPromise; if (configTable) await configTable.put(CONFIG_KEY, config) } catch { /* 降级内存 */ }
               sendJson(200, config)
               return
             }

@@ -447,9 +447,11 @@ module.exports = {
     // 自有 SSE——独立安装不受影响 ──────────────────────────────────────
     let liveState = 'connecting'
     let es = null
-    const hubOff = connectEvents('dsh-fireworks', (data) => {
-      try { dispatchCelebration(overlay, data) } catch { /* 坏帧忽略 */ }
-    }, (s) => { liveState = s })
+    const hubOff = typeof PluginKit !== 'undefined' && typeof PluginKit.connectEvents === 'function'
+      ? PluginKit.connectEvents('dsh-fireworks', (data) => {
+        try { dispatchCelebration(overlay, data) } catch { /* 坏帧忽略 */ }
+      }, (s) => { liveState = s })
+      : null
     if (!hubOff && typeof EventSource !== 'undefined') {
       es = new EventSource(API + '/stream')
       es.onopen = () => { liveState = 'live' }

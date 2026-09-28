@@ -793,6 +793,14 @@ window.__ModuleLoader__.load({
             sse: null,
           }
         }
+        window.__dshEventHub.subscribe = function (plugin, fn) {
+          return hubSubscribe(plugin, fn)
+        }
+        window.__dshEventHub.readyState = function () {
+          if (hubState().ws && hubState().ws.readyState === 1) return 1
+          if (hubState().sse) return 1
+          return 0
+        }
         return window.__dshEventHub
       }
 
@@ -2515,9 +2523,11 @@ window.__ModuleLoader__.load({
         // 自有 SSE——独立安装不受影响 ──────────────────────────────────────
         let liveState = 'connecting'
         let es = null
-        const hubOff = connectEvents('dsh-fireworks', (data) => {
-          try { dispatchCelebration(overlay, data) } catch { /* 坏帧忽略 */ }
-        }, (s) => { liveState = s })
+        const hubOff = typeof PluginKit !== 'undefined' && typeof PluginKit.connectEvents === 'function'
+          ? PluginKit.connectEvents('dsh-fireworks', (data) => {
+            try { dispatchCelebration(overlay, data) } catch { /* 坏帧忽略 */ }
+          }, (s) => { liveState = s })
+          : null
         if (!hubOff && typeof EventSource !== 'undefined') {
           es = new EventSource(API + '/stream')
           es.onopen = () => { liveState = 'live' }

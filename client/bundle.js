@@ -1985,12 +1985,19 @@ window.__ModuleLoader__.load({
     // ── 主题色调自适应 ────────────────────────────────────────────────────────
 
     /**
-     * 采样页面底色亮度：画布 pointer-events:none，elementFromPoint 会穿透它
-     * 命中下层页面元素，沿父链找第一个非透明背景色。亮于阈值 → light。
-     * 浅色主题下引擎切换墨色渲染（深饱和线条、关白炽芯、弱爆闪）。
+     * 主判据走 dsh 官方主题属性（ThemePresenter 约定）：
+     *   html[data-ds-theme-source="light|dark|system"] + body[data-ds-dark-theme]（存在即暗色）
+     * 属性缺席（老版本宿主）才回退 elementFromPoint 采样：画布 pointer-events:none，
+     * 穿透命中下层页面元素，沿父链找第一个非透明背景色，亮于阈值 → light。
      */
     function detectTone() {
       try {
+        const root = document.documentElement
+        const body = document.body
+        const source = (root.getAttribute('data-ds-theme-source') || '').toLowerCase()
+        if (source === 'dark') return 'dark'
+        if (source === 'light') return 'light'
+        if (body && body.hasAttribute('data-ds-dark-theme')) return 'dark'
         let el = document.elementFromPoint(Math.floor(innerWidth / 2), Math.floor(innerHeight * 0.55))
         let guard = 0
         while (el && guard++ < 12) {
@@ -2226,11 +2233,22 @@ window.__ModuleLoader__.load({
           .then((cfg) => applyConfig(cfg))
           .catch(() => {})
 
-        // ── 主题色调跟随（深色/浅色 UI 切换时实时适配）────────────────────
+        // ── 主题色调跟随（事件驱动，无轮询）────────────────────────────────
+        // dsh 切主题翻动 html/body 的官方主题属性 → MutationObserver 即时捕获；
+        // matchMedia 兜住 system 模式下的系统深浅切换与属性缺席宿主。
         const applyTone = () => overlay.engine.setToneMode(detectTone())
         applyTone()
-        const toneTimer = setInterval(applyTone, 3000)
-        ctx.effect(() => () => clearInterval(toneTimer), 'dsh-fireworks: tone')
+        try {
+          const toneMo = new MutationObserver(applyTone)
+          toneMo.observe(document.documentElement, { attributes: true })
+          if (document.body) toneMo.observe(document.body, { attributes: true })
+          const toneMq = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)')
+          if (toneMq && toneMq.addEventListener) toneMq.addEventListener('change', applyTone)
+          ctx.effect(() => () => {
+            toneMo.disconnect()
+            if (toneMq && toneMq.removeEventListener) toneMq.removeEventListener('change', applyTone)
+          }, 'dsh-fireworks: tone')
+        } catch { /* 保留挂载时探测结果 */ }
 
         // ── SSE 订阅 ───────────────────────────────────────────────────────
         let es = null

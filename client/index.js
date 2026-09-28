@@ -443,18 +443,25 @@ module.exports = {
       }, 'dsh-fireworks: tone')
     } catch { /* 保留挂载时探测结果 */ }
 
-    // ── SSE 订阅 ───────────────────────────────────────────────────────
-    let es = null
+    // ── 事件订阅：枢纽优先（dsh-plugin-kit ≥0.4 的共享单连接），缺席回退
+    // 自有 SSE——独立安装不受影响 ──────────────────────────────────────
     let liveState = 'connecting'
-    if (typeof EventSource !== 'undefined') {
+    let es = null
+    const hubOff = connectEvents('dsh-fireworks', (data) => {
+      try { dispatchCelebration(overlay, data) } catch { /* 坏帧忽略 */ }
+    }, (s) => { liveState = s })
+    if (!hubOff && typeof EventSource !== 'undefined') {
       es = new EventSource(API + '/stream')
       es.onopen = () => { liveState = 'live' }
       es.onerror = () => { liveState = 'connecting' } // EventSource 自动重连
       es.onmessage = (msg) => {
-        try { dispatchCelebration(overlay, JSON.parse(msg.data)) } catch { /* 坏帧忽略 */ }
+        try { liveState = 'live'; dispatchCelebration(overlay, JSON.parse(msg.data)) } catch { /* 坏帧忽略 */ }
       }
     }
-    ctx.effect(() => () => { if (es) try { es.close() } catch {} }, 'dsh-fireworks: sse')
+    ctx.effect(() => () => {
+      if (hubOff) try { hubOff() } catch {}
+      if (es) try { es.close() } catch {}
+    }, 'dsh-fireworks: events')
 
     // ── 调试/演示入口 ──────────────────────────────────────────────────
     window.__dshFireworks = {

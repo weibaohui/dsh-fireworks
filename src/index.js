@@ -26,6 +26,11 @@
 /** 里程碑档位（会话累计 output tokens）。 */
 const MILESTONE_TIERS = [2000, 8000, 20000, 50000, 120000, 300000]
 
+// 共享事件推送枢纽（@weibaohui/dsh-plugin-kit ≥0.4）：库缺席（未安装）时为
+// undefined，广播回退自有 SSE 通道——独立安装不受影响。
+let ensureHostHub
+try { ({ ensureHostHub } = require('@weibaohui/dsh-plugin-kit')) } catch { /* 库缺席 */ }
+
 /** turn 礼花的「满规模」token 参考值（magnitudeOf 的 ref）。 */
 const TURN_TOKEN_REF = 40000
 
@@ -147,6 +152,12 @@ module.exports = {
     let seq = 0
 
     const broadcast = (payload) => {
+      // 共享事件枢纽（dsh-plugin-kit ≥0.4）在就优先发布——全页面只占一条
+      // SSE；库缺席（未安装）时回退自有 SSE 通道，独立安装不受影响
+      try {
+        const hub = ensureHostHub && ensureHostHub(ctx, { webServer: ctx.webServer, connection: ctx.connection })
+        if (hub && typeof hub.publish === 'function') hub.publish('dsh-fireworks', payload)
+      } catch { /* 枢纽缺席/出错不拖垮庆祝逻辑 */ }
       if (subscribers.size === 0) return
       seq += 1
       const frame = `id: ${seq}\ndata: ${JSON.stringify(Object.assign({ seq }, payload))}\n\n`

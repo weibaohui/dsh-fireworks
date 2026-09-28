@@ -53,5 +53,8 @@
     "type": "git",
     "url": "git+https://github.com/weibaohui/dsh-fireworks.git"
   },
-  "homepage": "https://github.com/weibaohui/dsh-fireworks#readme"
+  "homepage": "https://github.com/weibaohui/dsh-fireworks#readme",
+  "dependencies": {
+    "@weibaohui/dsh-plugin-kit": "^0.4.0"
+  }
 }

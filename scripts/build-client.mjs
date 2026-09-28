@@ -19,9 +19,16 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { createRequire } from 'node:module'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8'))
+
+/** dsh-plugin-kit 客户端源码（共享事件枢纽等），构建期内联。 */
+const kitRequire = createRequire(import.meta.url)
+const kitClient = readFileSync(kitRequire.resolve('@weibaohui/dsh-plugin-kit/client/source.js'), 'utf8')
+  .replace(/^'use strict'\s*/, '')
+  .trim()
 
 /** 读入 helper 源并剥掉 node-only 外壳。 */
 const helper = (name) => readFileSync(join(here, '..', 'client', name), 'utf8')
@@ -58,6 +65,6 @@ const indent = (code) => code
   .map((line) => (line.length === 0 ? line : '    ' + line))
   .join('\n')
 
-const body = `${indent(cards)}\n\n${indent(rendererCanvas2d)}\n\n${indent(rendererWebgl)}\n\n${indent(engine)}\n\n${indent(source)}`
+const body = `${indent(cards)}\n\n${indent(kitClient)}\n\n${indent(rendererCanvas2d)}\n\n${indent(rendererWebgl)}\n\n${indent(engine)}\n\n${indent(source)}`
 writeFileSync(join(here, '..', 'client', 'bundle.js'), banner + body + footer)
 console.log(`built client/bundle.js (${Buffer.byteLength(banner + body + footer, 'utf8')} bytes)`)

@@ -770,21 +770,35 @@ window.__ModuleLoader__.load({
       }
 
       // ── 共享事件推送枢纽 ─────────────────────────────────────────────────
-      // 解决：dsh web 网关是 HTTP/1.1，同源并发只有 ~6 条连接，每个插件自建
-      // 永久 SSE 会把预算占满、首页全部排队。传输选择：WebSocket 优先（握手后
-      // 豁免于 h1.1 连接预算，自动重连；连续 3 次未连上自动降级 SSE 总线），
-      // SSE 兜底。服务端由任意消费者经 PluginKit.ensureHostHub(ctx,
-      // {webServer, connection}) 在进程内协调出唯一路由（本包 src/index.js）。
+      // 解决:dsh web 网关是 HTTP/1.1,同源并发只有 ~6 条连接,每个插件自建
+      // 永久 SSE 会把预算占满、首页全部排队。全页面只开**一条**事件通道
+      // (WebSocket 优先,握手后豁免于连接预算;连续 3 次握手失败自动降级
+      // SSE 总线),按帧里的 plugin 字段分发。服务端由任意消费者经
+      // PluginKit.ensureHostHub(ctx, {webServer, connection}) 协调出唯一路由
+      // (本包 src/index.js)。
+      //
+      // 关键实现约束:**总线状态必须挂 window.__dshEventHub**,不能放本文件
+      // 模块作用域——每个消费者 bundle 都内联一份本源码,模块状态是每副本
+      // 独立的,只有 window 上的状态能跨副本共享(否则每插件各开一条 ws)。
       var HUB_WS_PATH = '/dsh-event-hub/ws'
       var HUB_SSE_PATH = '/dsh-event-hub/api/stream'
-      var hubSubscribers = new Map() // plugin -> Set<fn(data, frame)>
-      var hubStarted = false
-      var hubWs = null
-      var hubWsAttempts = 0
-      var hubSse = null
+
+      function hubState() {
+        if (!window.__dshEventHub) {
+          window.__dshEventHub = {
+            subscribers: new Map(), // plugin -> Set<fn(data, frame)>
+            started: false,
+            ws: null,
+            wsAttempts: 0,
+            sse: null,
+          }
+        }
+        return window.__dshEventHub
+      }
 
       function hubDispatch(data, frame) {
-        var set = hubSubscribers.get(frame.plugin)
+        var st = hubState()
+        var set = st.subscribers.get(frame.plugin)
         if (!set) return
         set.forEach(function (fn) {
           try { fn(data, frame) } catch (e) { /* 单个订阅者出错不影响其他 */ }
@@ -792,17 +806,20 @@ window.__ModuleLoader__.load({
       }
 
       function hubSubscribe(plugin, fn) {
-        var set = hubSubscribers.get(plugin)
-        if (!set) { set = new Set(); hubSubscribers.set(plugin, set) }
+        var st = hubState()
+        var set = st.subscribers.get(plugin)
+        if (!set) { set = new Set(); st.subscribers.set(plugin, set) }
         set.add(fn)
-        return function () { set.delete(fn) }
+        return function () { st.subscribers.get(plugin).delete(fn) }
       }
 
-      /** SSE 兜底总线（老宿主 ws 不可用时）。 */
+      /** SSE 兜底总线(老宿主 ws 不可用/连续握手失败时)。 */
       function startSseHub() {
-        if (hubSse) return
-        hubSse = new EventSource(HUB_SSE_PATH)
-        hubSse.onmessage = function (msg) {
+        var st = hubState()
+        if (st.mode === 'sse' && st.sse) return
+        st.mode = 'sse'
+        st.sse = new EventSource(HUB_SSE_PATH)
+        st.sse.onmessage = function (msg) {
           var frame
           try { frame = JSON.parse(msg.data) } catch (e) { return }
           if (!frame || typeof frame.plugin !== 'string') return
@@ -810,52 +827,53 @@ window.__ModuleLoader__.load({
         }
       }
 
-      /** ws 主通道：自动重连；连续 3 次未成功握手则永久降级 SSE。 */
+      /** ws 主通道:自动重连;连续 3 次未握手成功则永久降级 SSE。 */
       function startWsHub() {
-        if (hubWs) return
+        var st = hubState()
+        if (st.ws) return
         try {
           var proto = location.protocol === 'https:' ? 'wss://' : 'ws://'
-          hubWsAttempts++
-          hubWs = new WebSocket(proto + location.host + HUB_WS_PATH)
-          hubWs.onopen = function () { hubWsAttempts = 0 }
-          hubWs.onmessage = function (msg) {
+          st.wsAttempts++
+          st.ws = new WebSocket(proto + location.host + HUB_WS_PATH)
+          st.ws.onopen = function () { st.wsAttempts = 0 }
+          st.ws.onmessage = function (msg) {
             var frame
             try { frame = JSON.parse(msg.data) } catch (e) { return }
             if (!frame || typeof frame.plugin !== 'string') return
             hubDispatch(frame.data, frame)
           }
-          hubWs.onclose = function () {
-            hubWs = null
-            if (hubWsAttempts < 3) setTimeout(function () { startTransport() }, 3000)
+          st.ws.onclose = function () {
+            st.ws = null
+            if (st.wsAttempts < 3) setTimeout(function () { startTransport() }, 3000)
             else startSseHub()
           }
-          hubWs.onerror = function () { try { hubWs.close() } catch (e) { /* 已关 */ } }
+          st.ws.onerror = function () { try { st.ws.close() } catch (e) { /* 已关 */ } }
         } catch (e) {
           startSseHub()
         }
       }
 
       function startTransport() {
-        // dpr 无关：ws 握手成功后豁免于 h1.1 连接预算；连续 3 次失败转 SSE
-        if (typeof WebSocket !== 'undefined' && typeof location !== 'undefined' && hubWsAttempts < 3) startWsHub()
+        var st = hubState()
+        if (st.started && (st.ws || st.sse)) return
+        // WebSocket 优先(握手后豁免于 h1.1 连接预算);连续 3 次握手失败转 SSE
+        if (typeof WebSocket !== 'undefined' && typeof location !== 'undefined' && st.wsAttempts < 3) startWsHub()
         else startSseHub()
       }
 
       /**
-       * 订阅某插件的事件流：枢纽就绪则共享连接（零额外连接）；
-       * 浏览器不支持时返回 null，调用方自行回退（自有 SSE / 轮询）。
+       * 订阅某插件的事件流:枢纽就绪则共享连接(零额外连接);
+       * 浏览器不支持时返回 null,调用方自行回退(自有 SSE / 轮询)。
        */
       function connectEvents(plugin, onFrame, onState) {
-        if (!hubStarted) {
-          hubStarted = true
-          startTransport()
-        }
+        if (typeof window === 'undefined' || typeof EventSource === 'undefined') return null
+        startTransport()
         var off = hubSubscribe(plugin, function (data, frame) {
           if (onState) { try { onState('live') } catch (e) {} }
           onFrame(data, frame)
         })
-        // SSE 慢启动：连接未就绪前先报 connecting（ws 场景 onopen 很快覆盖）
-        if (onState) { try { onState(hubWs !== null || hubSse !== null ? 'live' : 'connecting') } catch (e) {} }
+        var st = hubState()
+        if (onState) { try { onState(st.ws || st.sse ? 'live' : 'connecting') } catch (e) {} }
         return off
       }
 

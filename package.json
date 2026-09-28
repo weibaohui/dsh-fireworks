@@ -55,6 +55,6 @@
   },
   "homepage": "https://github.com/weibaohui/dsh-fireworks#readme",
   "dependencies": {
-    "@weibaohui/dsh-plugin-kit": "^0.4.0"
+    "@weibaohui/dsh-plugin-kit": "^0.5.0"
   }
 }

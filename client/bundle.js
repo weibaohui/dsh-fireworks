@@ -793,14 +793,6 @@ window.__ModuleLoader__.load({
             sse: null,
           }
         }
-        window.__dshEventHub.subscribe = function (plugin, fn) {
-          return hubSubscribe(plugin, fn)
-        }
-        window.__dshEventHub.readyState = function () {
-          if (hubState().ws && hubState().ws.readyState === 1) return 1
-          if (hubState().sse) return 1
-          return 0
-        }
         return window.__dshEventHub
       }
 

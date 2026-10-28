@@ -2173,7 +2173,14 @@ window.__ModuleLoader__.load({
     }
 
     const LOCALE_DICT = { zh: ZH, en: EN }
-    const API = '/dsh-fireworks/api'
+    // API 基址随页面走：子路径反代（如 https://host/app/dsh/）下，绝对路径 /dsh-fireworks/api
+    // 会打到站点根而 404。与宿主官方客户端一致，用 document.baseURI 推导（dsh-sync#14 同款）。
+    const API = (() => {
+      try {
+        const base = (typeof document !== 'undefined' && document.baseURI) || (typeof location !== 'undefined' ? location.href : '/')
+        return new URL('dsh-fireworks/api', new URL('.', base)).pathname.replace(/\/+$/, '')
+      } catch { return '/dsh-fireworks/api' }
+    })()
 
     /** 类别顺序（设置页与「全部试放」用）。 */
     const CATEGORY_ORDER = ['session', 'turn', 'tool', 'milestone', 'finale', 'fail']
